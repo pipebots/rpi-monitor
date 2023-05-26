@@ -12,12 +12,14 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(diagnostic_updater REQUIRED)
 
 include_directories(include)
 
 # Source files.
 set(SRC_FILES
   src/rpi_monitor.cpp
+  src/rpi_monitor_node.cpp
 )
 
 set(PROJECT_EXEC ${PROJECT_NAME}_exec)
@@ -31,6 +33,7 @@ ament_target_dependencies(${PROJECT_EXEC}
   rclcpp
   rclcpp_components
   diagnostic_msgs
+  diagnostic_updater
 )
 
 install(TARGETS ${PROJECT_EXEC}

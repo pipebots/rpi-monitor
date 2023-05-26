@@ -22,19 +22,18 @@
 #include <string>
 #include <rclcpp/rclcpp.hpp>
 
-#include "rpi_monitor.hpp"
+#include "rpi_monitor_node.hpp"
+
 
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::NodeOptions options;
-  options.arguments({""});
-  // Battery state publisher.
-  // auto battery_state_node = std::make_shared<BatteryStateNode>(options);
+
+  auto rpi_monitor_node = std::make_shared<RPiMonitorNode>();
 
   // Add nodes to executor.
   rclcpp::executors::SingleThreadedExecutor exec;
-  // exec.add_node(battery_state_node);
+  exec.add_node(rpi_monitor_node);
 
   // Spin until killed.
   exec.spin();

@@ -17,7 +17,7 @@ and to launch:
 
 ```bash
 . ./install.setup.bash
-ros2 launch rpi_monitor monitor
+ros2 launch rpi_monitor monitor.launch.py
 ```
 
 ## Acknowledgments

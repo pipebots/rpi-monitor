@@ -31,13 +31,17 @@
 #include "rpi_monitor_node.hpp"
 
 // Default node name and topic name.
-static const char * kNodeName = "rpi_monitor_node";
+static const char * kNodeName = "rpi_monitor";
 
+static const float kTempWarnC = 65.0;
+static const float kTempErrorC = 75.0;
+static const std::filesystem::path kThermalZonePath("/sys/class/thermal/thermal_zone0/temp");
 
 RPiMonitorNode::RPiMonitorNode()
-: Node(kNodeName), temps_(), temp_warn_(0.0), temp_error_(0.0), temp_dict_()
+: Node(kNodeName)
 {
   RCLCPP_INFO(get_logger(), "%s: Called", __func__);
+  // Create updater.
   updater_ = new diagnostic_updater::Updater(this);
   updater_->setHardwareID("RPI Monitor");
   updater_->add("CPU Temperature", this, &RPiMonitorNode::CheckTemperature);
@@ -49,38 +53,28 @@ RPiMonitorNode::~RPiMonitorNode() {
 
 void RPiMonitorNode::CheckTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat)
 {
-  if (temps_.empty()) {
-    stat.summary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, "Temperature files not found");
-    return;
-  }
-
   int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   std::string error_str = "";
 
-  for (auto itr = temps_.begin(); itr != temps_.end(); ++itr) {
-    // Read temperature from /sys...
-    const std::filesystem::path path(itr->path_);
-    std::ifstream input_stream(path, std::ios::in);
-    if (!input_stream.is_open()) {
-      stat.add("file open error", itr->path_);
-      error_str = "file open error";
-      continue;
-    }
-
+  // Read temperature from /sys...
+  std::ifstream input_stream(kThermalZonePath, std::ios::in);
+  if (!input_stream.is_open()) {
+    stat.add("file open error", kThermalZonePath);
+    error_str = "file open error";
+  } else {
     float temp;
     input_stream >> temp;
     input_stream.close();
     temp /= 1000;
-    stat.addf(itr->label_, "%.1f DegC", temp);
+    stat.addf("CPU", "%.1f DegC", temp);
 
     level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-    if (temp >= temp_error_) {
+    if (temp >= kTempErrorC) {
       level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
-    } else if (temp >= temp_warn_) {
+    } else if (temp >= kTempWarnC) {
       level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::WARN));
     }
   }
-
   if (!error_str.empty()) {
     stat.summary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, error_str);
   } else {

@@ -20,6 +20,8 @@
 
 #include <filesystem>
 #include <iostream>
+#include <string>
+#include <sstream>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -35,7 +37,23 @@ static const char * kNodeName = "rpi_monitor";
 
 static const float kTempWarnC = 65.0;
 static const float kTempErrorC = 75.0;
-static const std::filesystem::path kThermalZonePath("/sys/class/thermal/thermal_zone0/temp");
+static const std::string kCPUName("CPU All");
+static const std::string kCPUTemperaturePath("/sys/class/thermal/thermal_zone0/temp");
+
+static const std::string kCPUUsagePath("/proc/stat");
+static const float kCPUUsageError = 90.0;
+static const float kCPUUsageWarn = 80.0;
+
+static std::vector<std::string> WordSplit(std::string in_str)
+{
+  std::vector<std::string> strings;
+  std::stringstream ss(in_str);
+  std::string word;
+  while(ss >>word) {
+    strings.push_back(word);
+  }
+  return strings;
+}
 
 RPiMonitorNode::RPiMonitorNode()
 : Node(kNodeName)
@@ -45,9 +63,11 @@ RPiMonitorNode::RPiMonitorNode()
   updater_ = new diagnostic_updater::Updater(this);
   updater_->setHardwareID("RPI Monitor");
   updater_->add("CPU Temperature", this, &RPiMonitorNode::CheckTemperature);
+  updater_->add("CPU Usage", this, &RPiMonitorNode::CheckUsage);
 }
 
-RPiMonitorNode::~RPiMonitorNode() {
+RPiMonitorNode::~RPiMonitorNode()
+{
   delete updater_;
 }
 
@@ -55,29 +75,94 @@ void RPiMonitorNode::CheckTemperature(diagnostic_updater::DiagnosticStatusWrappe
 {
   int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   std::string error_str = "";
-
-  // Read temperature from /sys...
-  std::ifstream input_stream(kThermalZonePath, std::ios::in);
-  if (!input_stream.is_open()) {
-    stat.add("file open error", kThermalZonePath);
-    error_str = "file open error";
-  } else {
-    float temp;
-    input_stream >> temp;
-    input_stream.close();
-    temp /= 1000;
-    stat.addf("CPU", "%.1f DegC", temp);
-
-    level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-    if (temp >= kTempErrorC) {
+  // Use temperature info to fill out the stat class.
+  TemperatureData temperature_data = ReadTemperatureData();
+  if (temperature_data.values_read_) {
+    stat.addf("CPU", "%.1f DegC", temperature_data.cpu_temperature_c_);
+    if (temperature_data.cpu_temperature_c_ >= kTempErrorC) {
       level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
-    } else if (temp >= kTempWarnC) {
+    } else if (temperature_data.cpu_temperature_c_ >= kTempWarnC) {
       level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::WARN));
     }
+  } else {
+    stat.add("File open error", kCPUTemperaturePath);
+    error_str = "File open error";
   }
   if (!error_str.empty()) {
     stat.summary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, error_str);
   } else {
     stat.summary(level, temp_dict_.at(level));
   }
+}
+
+RPiMonitorNode::TemperatureData RPiMonitorNode::ReadTemperatureData()
+{
+  TemperatureData temperatures;
+  // Read temperature from /sys...
+  std::ifstream input_stream(kCPUTemperaturePath, std::ios::in);
+  if (input_stream.is_open()) {
+    input_stream >> temperatures.cpu_temperature_c_;
+    input_stream.close();
+    temperatures.cpu_temperature_c_ /= 1000;
+    temperatures.values_read_ = true;
+  }
+  return temperatures;
+}
+
+void RPiMonitorNode::CheckUsage(diagnostic_updater::DiagnosticStatusWrapper & stat)
+{
+  // Use usage data to fill out the stat class.
+  UsageData usage_data = ReadUsageData();
+  int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+  if (usage_data.values_read_) {
+    // Set level.
+    if (usage_data.total_usage_ >= kCPUUsageError) {
+      level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+    } else if (usage_data.total_usage_ >= kCPUUsageWarn) {
+      level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+    }
+    // Add data to message.
+    stat.add(kCPUName, load_dict_.at(level));
+    stat.addf(kCPUName, "%.2f%%", usage_data.total_usage_);
+    stat.summary(level, load_dict_.at(level));
+  } else {
+    // Failed to open "file".
+    stat.add("File open error", kCPUUsagePath);
+    stat.summary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, load_dict_.at(level));
+  }
+}
+
+RPiMonitorNode::UsageData RPiMonitorNode::ReadUsageData()
+{
+  // Read first line of output from /proc/stat.
+  //       user    nice system  idle      iowait irq softirq steal guest guest_nice
+  // "cpu  8293074 2617 2405913 598771170 210263 0   60505   0     0     0"
+  // steal onwards can be ignored on a Raspberry Pi.
+  // All values in Jiffies ()
+  UsageData usage_data;
+  // Open the file
+  std::fstream file(kCPUUsagePath, std::fstream::in);
+  if (file) {
+    // Read first line of file only.
+    std::string line;
+    std::getline(file, line);
+    file.close();
+    // Split into words.
+    std::vector<std::string> words = WordSplit(line);
+    // Remove first word "cpu".
+    words.erase(words.begin());
+    // Calculate total.
+    uint64_t total = 0;
+    for (auto word : words) {
+      total += std::stoull(word);
+    }
+    // Idle is 4th element.
+    uint64_t idle = std::stoull(words[3]);
+    // Total usage in percent is (total jiffies - idle) / total jiffies * 100.
+    usage_data.total_usage_ = static_cast<double>(total - idle);
+    usage_data.total_usage_ /= static_cast<double>(total);
+    usage_data.total_usage_ *= 100.0;
+    usage_data.values_read_ = true;
+  }
+  return usage_data;
 }

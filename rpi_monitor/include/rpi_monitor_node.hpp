@@ -35,9 +35,42 @@ public:
   ~RPiMonitorNode();
 
 private:
+  // Using struct so more temperatures can be added later.
+  struct TemperatureData
+  {
+    // True if values read from system OK.
+    bool values_read_;
+    // Temperature of CPU in Celsius (_c).
+    double cpu_temperature_c_;
+    // Constructor to initialise values.
+    TemperatureData()
+    : values_read_(false), cpu_temperature_c_(0.0) {}
+  };
+
+  struct UsageData
+  {
+    // True if values read from system OK.
+    bool values_read_;
+    // Usage values in percent.  Can add detail here if needed.
+    double total_usage_;
+    // Constructor to initialise values.
+    UsageData()
+    : values_read_(false), total_usage_(0.0) {}
+  };
+
   void CheckTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  TemperatureData ReadTemperatureData();
+  void CheckUsage(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  UsageData ReadUsageData();
 
   diagnostic_updater::Updater * updater_;
+  /// @brief CPU usage status messages
+  const std::map<int, const char *> load_dict_ =
+  {
+    {diagnostic_msgs::msg::DiagnosticStatus::OK, "OK"},
+    {diagnostic_msgs::msg::DiagnosticStatus::WARN, "high load"},
+    {diagnostic_msgs::msg::DiagnosticStatus::ERROR, "very high load"}
+  };
   /// @brief CPU temperature status messages
   const std::map<int, const char *> temp_dict_ =
   {

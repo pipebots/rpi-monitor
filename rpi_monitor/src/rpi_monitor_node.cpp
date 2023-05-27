@@ -18,6 +18,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "sys/types.h"
+#include "sys/sysinfo.h"
+
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -44,12 +47,16 @@ static const std::string kCPUUsagePath("/proc/stat");
 static const float kCPUUsageError = 90.0;
 static const float kCPUUsageWarn = 80.0;
 
+static const float kMemoryUsageError = 95.0;
+static const float kMemoryUsageWarn = 80.0;
+
+
 static std::vector<std::string> WordSplit(std::string in_str)
 {
   std::vector<std::string> strings;
   std::stringstream ss(in_str);
   std::string word;
-  while(ss >>word) {
+  while (ss >> word) {
     strings.push_back(word);
   }
   return strings;
@@ -62,8 +69,9 @@ RPiMonitorNode::RPiMonitorNode()
   // Create updater.
   updater_ = new diagnostic_updater::Updater(this);
   updater_->setHardwareID("RPI Monitor");
-  updater_->add("CPU Temperature", this, &RPiMonitorNode::CheckTemperature);
-  updater_->add("CPU Usage", this, &RPiMonitorNode::CheckUsage);
+  updater_->add("CPU Temperature", this, &RPiMonitorNode::CheckCPUTemperature);
+  updater_->add("CPU Usage", this, &RPiMonitorNode::CheckCPUUsage);
+  updater_->add("Memory Usage", this, &RPiMonitorNode::CheckMemoryUsage);
 }
 
 RPiMonitorNode::~RPiMonitorNode()
@@ -71,12 +79,12 @@ RPiMonitorNode::~RPiMonitorNode()
   delete updater_;
 }
 
-void RPiMonitorNode::CheckTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat)
+void RPiMonitorNode::CheckCPUTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat)
 {
   int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   std::string error_str = "";
   // Use temperature info to fill out the stat class.
-  TemperatureData temperature_data = ReadTemperatureData();
+  CPUTemperatureData temperature_data = ReadCPUTemperatureData();
   if (temperature_data.values_read_) {
     stat.addf("CPU", "%.1f DegC", temperature_data.cpu_temperature_c_);
     if (temperature_data.cpu_temperature_c_ >= kTempErrorC) {
@@ -86,18 +94,13 @@ void RPiMonitorNode::CheckTemperature(diagnostic_updater::DiagnosticStatusWrappe
     }
   } else {
     stat.add("File open error", kCPUTemperaturePath);
-    error_str = "File open error";
   }
-  if (!error_str.empty()) {
-    stat.summary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, error_str);
-  } else {
-    stat.summary(level, temp_dict_.at(level));
-  }
+  stat.summary(level, temp_dict_.at(level));
 }
 
-RPiMonitorNode::TemperatureData RPiMonitorNode::ReadTemperatureData()
+RPiMonitorNode::CPUTemperatureData RPiMonitorNode::ReadCPUTemperatureData()
 {
-  TemperatureData temperatures;
+  CPUTemperatureData temperatures;
   // Read temperature from /sys...
   std::ifstream input_stream(kCPUTemperaturePath, std::ios::in);
   if (input_stream.is_open()) {
@@ -109,10 +112,10 @@ RPiMonitorNode::TemperatureData RPiMonitorNode::ReadTemperatureData()
   return temperatures;
 }
 
-void RPiMonitorNode::CheckUsage(diagnostic_updater::DiagnosticStatusWrapper & stat)
+void RPiMonitorNode::CheckCPUUsage(diagnostic_updater::DiagnosticStatusWrapper & stat)
 {
   // Use usage data to fill out the stat class.
-  UsageData usage_data = ReadUsageData();
+  UsageData usage_data = ReadCPUUsageData();
   int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   if (usage_data.values_read_) {
     // Set level.
@@ -122,17 +125,15 @@ void RPiMonitorNode::CheckUsage(diagnostic_updater::DiagnosticStatusWrapper & st
       level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
     }
     // Add data to message.
-    stat.add(kCPUName, load_dict_.at(level));
-    stat.addf(kCPUName, "%.2f%%", usage_data.total_usage_);
-    stat.summary(level, load_dict_.at(level));
+    stat.addf("All CPUs", "%.2f%%", usage_data.total_usage_);
   } else {
     // Failed to open "file".
     stat.add("File open error", kCPUUsagePath);
-    stat.summary(diagnostic_msgs::msg::DiagnosticStatus::ERROR, load_dict_.at(level));
   }
+  stat.summary(level, load_dict_.at(level));
 }
 
-RPiMonitorNode::UsageData RPiMonitorNode::ReadUsageData()
+RPiMonitorNode::UsageData RPiMonitorNode::ReadCPUUsageData()
 {
   // Read first line of output from /proc/stat.
   //       user    nice system  idle      iowait irq softirq steal guest guest_nice
@@ -164,5 +165,43 @@ RPiMonitorNode::UsageData RPiMonitorNode::ReadUsageData()
     usage_data.total_usage_ *= 100.0;
     usage_data.values_read_ = true;
   }
+  return usage_data;
+}
+
+void RPiMonitorNode::CheckMemoryUsage(diagnostic_updater::DiagnosticStatusWrapper & stat)
+{
+  // Get data. Note that this never fails so no file error logic is needed.
+  UsageData usage_data = ReadMemoryUsageData();
+  // Fill out message
+  int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+  // Set level.
+  if (usage_data.total_usage_ >= kMemoryUsageError) {
+    level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+  } else if (usage_data.total_usage_ >= kMemoryUsageWarn) {
+    level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+  }
+  // Add data to message.
+  stat.addf("RAM used", "%.2f%%", usage_data.total_usage_);
+  stat.summary(level, load_dict_.at(level));
+}
+
+RPiMonitorNode::UsageData RPiMonitorNode::ReadMemoryUsageData()
+{
+  UsageData usage_data;
+  // Get the data.
+  struct sysinfo memory_info;
+  sysinfo(&memory_info);
+  // Total RAM
+  uint64_t ram_total = memory_info.totalram;
+  // Done on separate line so prevent overflow.
+  ram_total *= memory_info.mem_unit;
+  // RAM in use.
+  uint64_t ram_in_use = memory_info.totalram - memory_info.freeram;
+  ram_in_use *= memory_info.mem_unit;
+  // Turn into percentage.
+  usage_data.total_usage_ = static_cast<double>(ram_total - ram_in_use);
+  usage_data.total_usage_ /= static_cast<double>(ram_total);
+  usage_data.total_usage_ *= 100.0;
+  usage_data.values_read_ = true;
   return usage_data;
 }

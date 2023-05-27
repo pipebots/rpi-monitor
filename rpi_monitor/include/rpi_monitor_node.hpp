@@ -36,14 +36,14 @@ public:
 
 private:
   // Using struct so more temperatures can be added later.
-  struct TemperatureData
+  struct CPUTemperatureData
   {
     // True if values read from system OK.
     bool values_read_;
     // Temperature of CPU in Celsius (_c).
     double cpu_temperature_c_;
     // Constructor to initialise values.
-    TemperatureData()
+    CPUTemperatureData()
     : values_read_(false), cpu_temperature_c_(0.0) {}
   };
 
@@ -58,10 +58,12 @@ private:
     : values_read_(false), total_usage_(0.0) {}
   };
 
-  void CheckTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat);
-  TemperatureData ReadTemperatureData();
-  void CheckUsage(diagnostic_updater::DiagnosticStatusWrapper & stat);
-  UsageData ReadUsageData();
+  void CheckCPUTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  CPUTemperatureData ReadCPUTemperatureData();
+  void CheckCPUUsage(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  UsageData ReadCPUUsageData();
+  void CheckMemoryUsage(diagnostic_updater::DiagnosticStatusWrapper & stat);
+  UsageData ReadMemoryUsageData();
 
   diagnostic_updater::Updater * updater_;
   /// @brief CPU usage status messages

@@ -1,6 +1,6 @@
 # Testing
 
-These are ROS2 commands that can be used to verify the correct operation of the Raspberry Pi monitor.  Each command is prefixed with a comment that explains the expected response.
+These are ROS2 commands that can be used to verify the correct operation of the Raspberry Pi monitor.
 
 ## Tests
 
@@ -64,3 +64,5 @@ Verify that the following items are present:
 * CPU temperature.
 * CPU usage.
 * RAM usage.
+
+Also verify that the reported values are correct. `top` can be used for the CPU and memory usage and `sensors` (installed using `sudo apt install lm-sensors`) for the temperature.

@@ -21,6 +21,7 @@
 #ifndef RPI_MONITOR_NODE_HPP_
 #define RPI_MONITOR_NODE_HPP_
 
+#include <map>
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "diagnostic_updater/publisher.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -84,7 +85,6 @@ private:
     {diagnostic_msgs::msg::DiagnosticStatus::WARN, "warm"},
     {diagnostic_msgs::msg::DiagnosticStatus::ERROR, "hot"}
   };
-
 };
 
 #endif  // RPI_MONITOR_NODE_HPP_

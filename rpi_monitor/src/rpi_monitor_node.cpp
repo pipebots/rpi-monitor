@@ -18,8 +18,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "sys/types.h"
-#include "sys/sysinfo.h"
+#include "rpi_monitor_node.hpp"
+
+#include <sys/types.h>
+#include <sys/sysinfo.h>
 
 #include <filesystem>
 #include <iostream>
@@ -27,23 +29,20 @@
 #include <sstream>
 #include <fstream>
 #include <memory>
-#include <string>
 #include <thread>
-#include <rclcpp/rclcpp.hpp>
-#include <diagnostic_updater/diagnostic_updater.hpp>
-#include <diagnostic_updater/publisher.hpp>
 
-#include "rpi_monitor_node.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "diagnostic_updater/diagnostic_updater.hpp"
+#include "diagnostic_updater/publisher.hpp"
 
 // Default node name and topic name.
 static const char * kNodeName = "rpi_monitor";
 
 static const float kTempWarnC = 65.0;
 static const float kTempErrorC = 75.0;
-static const std::string kCPUTemperatureName("CPU 0");
-static const std::string kCPUTemperaturePath("/sys/class/thermal/thermal_zone0/temp");
-
-static const std::string kCPUUsagePath("/proc/stat");
+static const char kCPUTemperatureName[] = "CPU 0";
+static const char kCPUTemperaturePath[] = "/sys/class/thermal/thermal_zone0/temp";
+static const char kCPUUsagePath[] = "/proc/stat";
 static const float kCPUUsageError = 90.0;
 static const float kCPUUsageWarn = 80.0;
 static const int kCPUUsageNumCPUs = 4;
@@ -86,7 +85,6 @@ RPiMonitorNode::~RPiMonitorNode()
 void RPiMonitorNode::CheckCPUTemperature(diagnostic_updater::DiagnosticStatusWrapper & stat)
 {
   int level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-  std::string error_str = "";
   // Use temperature info to fill out the stat class.
   CPUTemperatureData temperature_data = ReadCPUTemperatureData();
   if (temperature_data.values_read_) {
@@ -152,17 +150,17 @@ RPiMonitorNode::UsageData RPiMonitorNode::ReadCPUUsageData()
     uint32_t idle_per_cpu_jiffies =
       static_cast<uint32_t>(idle_jiffies - last_idle_jiffies_) / kCPUCount;
     uint32_t used_per_cpu_jiffies = kJiffiesPerSecond - idle_per_cpu_jiffies;
-    printf(
-      "%s: jiffies: this %lu, last %lu, idle per cpu %u, used per cpu %u\n", __func__,
-      idle_jiffies, last_idle_jiffies_, idle_per_cpu_jiffies, used_per_cpu_jiffies);
+    // printf(
+    //   "%s: jiffies: this %lu, last %lu, idle per cpu %u, used per cpu %u\n", __func__,
+    //   idle_jiffies, last_idle_jiffies_, idle_per_cpu_jiffies, used_per_cpu_jiffies);
     rclcpp::Duration interval_duration = call_time - last_idle_called_;
     double interval_s = interval_duration.seconds();
     double used_time_s = used_per_cpu_jiffies * interval_s;
     // Convert to percentage in use.
     usage_percent = (used_time_s / 100.0) * 100.0;
-    printf(
-      "%s: interval: %f, used time %f, usage %.2f%%\n", __func__,
-      interval_s, used_time_s, usage_percent);
+    // printf(
+    //   "%s: interval: %f, used time %f, usage %.2f%%\n", __func__,
+    //   interval_s, used_time_s, usage_percent);
   }
   // Update last values.
   last_idle_jiffies_ = idle_jiffies;
@@ -193,11 +191,6 @@ uint64_t RPiMonitorNode::ReadIdleJiffies()
     std::vector<std::string> words = WordSplit(line);
     // Remove first word "cpu".
     words.erase(words.begin());
-    // Calculate total.
-    uint64_t total = 0;
-    for (auto word : words) {
-      total += std::stoull(word);
-    }
     // Idle is 4th element.
     idle_jiffies = std::stoull(words[3]);
   }

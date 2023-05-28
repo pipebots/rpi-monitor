@@ -28,8 +28,8 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <rclcpp/rclcpp.hpp>
-
 #include <diagnostic_updater/diagnostic_updater.hpp>
 #include <diagnostic_updater/publisher.hpp>
 
@@ -40,16 +40,20 @@ static const char * kNodeName = "rpi_monitor";
 
 static const float kTempWarnC = 65.0;
 static const float kTempErrorC = 75.0;
-static const std::string kCPUName("CPU All");
+static const std::string kCPUTemperatureName("CPU 0");
 static const std::string kCPUTemperaturePath("/sys/class/thermal/thermal_zone0/temp");
 
 static const std::string kCPUUsagePath("/proc/stat");
 static const float kCPUUsageError = 90.0;
 static const float kCPUUsageWarn = 80.0;
+static const int kCPUUsageNumCPUs = 4;
+static const uint16_t kJiffiesPerSecond = 100;
 
 static const float kMemoryUsageError = 95.0;
 static const float kMemoryUsageWarn = 80.0;
 
+// Get CPU count. Returns 0 when not able to detect.
+static const unsigned int kCPUCount = std::thread::hardware_concurrency();
 
 static std::vector<std::string> WordSplit(std::string in_str)
 {
@@ -63,7 +67,7 @@ static std::vector<std::string> WordSplit(std::string in_str)
 }
 
 RPiMonitorNode::RPiMonitorNode()
-: Node(kNodeName)
+: Node(kNodeName), updater_(0), last_idle_jiffies_(0), last_idle_called_(now())
 {
   RCLCPP_INFO(get_logger(), "%s: Called", __func__);
   // Create updater.
@@ -86,7 +90,8 @@ void RPiMonitorNode::CheckCPUTemperature(diagnostic_updater::DiagnosticStatusWra
   // Use temperature info to fill out the stat class.
   CPUTemperatureData temperature_data = ReadCPUTemperatureData();
   if (temperature_data.values_read_) {
-    stat.addf("CPU", "%.1f DegC", temperature_data.cpu_temperature_c_);
+    // Report
+    stat.addf(kCPUTemperatureName, "%.1f DegC", temperature_data.cpu_temperature_c_);
     if (temperature_data.cpu_temperature_c_ >= kTempErrorC) {
       level = std::max(level, static_cast<int>(diagnostic_msgs::msg::DiagnosticStatus::ERROR));
     } else if (temperature_data.cpu_temperature_c_ >= kTempWarnC) {
@@ -125,6 +130,7 @@ void RPiMonitorNode::CheckCPUUsage(diagnostic_updater::DiagnosticStatusWrapper &
       level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
     }
     // Add data to message.
+    stat.addf("Number CPUs", "%d", kCPUCount);
     stat.addf("All CPUs", "%.2f%%", usage_data.total_usage_);
   } else {
     // Failed to open "file".
@@ -135,12 +141,46 @@ void RPiMonitorNode::CheckCPUUsage(diagnostic_updater::DiagnosticStatusWrapper &
 
 RPiMonitorNode::UsageData RPiMonitorNode::ReadCPUUsageData()
 {
+  // This function calculates the CPU usage in percent taken over the time
+  // period from one call to the next.
+  // Get time and jiffy info.
+  uint64_t idle_jiffies = ReadIdleJiffies();
+  rclcpp::Time call_time = now();
+  double usage_percent = 0;
+  if (last_idle_jiffies_ > 0) {
+    // Calculate jiffies used per second per CPU.
+    uint64_t idle_used_jiffies = idle_jiffies - last_idle_jiffies_;
+    printf(
+      "%s: jiffies: this %lu, last %lu, diff %lu\n", __func__,
+      idle_jiffies, last_idle_jiffies_, idle_used_jiffies);
+    rclcpp::Duration interval_duration = call_time - last_idle_called_;
+    double interval_s = interval_duration.seconds();
+    double idle_time_s = (idle_used_jiffies / kJiffiesPerSecond) / interval_s;
+    double idle_time_per_cpu_s = idle_time_s / kCPUCount;
+    printf(
+      "%s: interval: %f, idle time %f, per cpu %f\n", __func__,
+      interval_s, idle_time_s, idle_time_per_cpu_s);
+    // Convert to percentage in use.
+    usage_percent = ((1.0 - idle_time_per_cpu_s) / 1.0 ) * 100;
+  }
+  // Update last values.
+  last_idle_jiffies_ = idle_jiffies;
+  last_idle_called_ = call_time;
+  // Fill out usage data.
+  UsageData usage_data;
+  usage_data.total_usage_ = usage_percent;
+  usage_data.values_read_ = true;
+  return usage_data;
+}
+
+uint64_t RPiMonitorNode::ReadIdleJiffies()
+{
   // Read first line of output from /proc/stat.
   //       user    nice system  idle      iowait irq softirq steal guest guest_nice
   // "cpu  8293074 2617 2405913 598771170 210263 0   60505   0     0     0"
   // steal onwards can be ignored on a Raspberry Pi.
   // All values in Jiffies ()
-  UsageData usage_data;
+  uint64_t idle_jiffies = 0;
   // Open the file
   std::fstream file(kCPUUsagePath, std::fstream::in);
   if (file) {
@@ -158,14 +198,9 @@ RPiMonitorNode::UsageData RPiMonitorNode::ReadCPUUsageData()
       total += std::stoull(word);
     }
     // Idle is 4th element.
-    uint64_t idle = std::stoull(words[3]);
-    // Total usage in percent is (total jiffies - idle) / total jiffies * 100.
-    usage_data.total_usage_ = static_cast<double>(total - idle);
-    usage_data.total_usage_ /= static_cast<double>(total);
-    usage_data.total_usage_ *= 100.0;
-    usage_data.values_read_ = true;
+    idle_jiffies = std::stoull(words[3]);
   }
-  return usage_data;
+  return idle_jiffies;
 }
 
 void RPiMonitorNode::CheckMemoryUsage(diagnostic_updater::DiagnosticStatusWrapper & stat)

@@ -62,10 +62,14 @@ private:
   CPUTemperatureData ReadCPUTemperatureData();
   void CheckCPUUsage(diagnostic_updater::DiagnosticStatusWrapper & stat);
   UsageData ReadCPUUsageData();
+  uint64_t ReadIdleJiffies();
   void CheckMemoryUsage(diagnostic_updater::DiagnosticStatusWrapper & stat);
   UsageData ReadMemoryUsageData();
 
   diagnostic_updater::Updater * updater_;
+  uint64_t last_idle_jiffies_;
+  rclcpp::Time last_idle_called_;
+
   /// @brief CPU usage status messages
   const std::map<int, const char *> load_dict_ =
   {

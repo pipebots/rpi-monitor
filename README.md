@@ -6,16 +6,32 @@ Tested on a Raspberry Pi 4B but should work on other models.
 
 ## Build and run
 
+NOTE: where `~/ws` is used, replace with your own workspace path.
+
+Clone the repo:
+
 ```bash
 cd ~/ws/src
 git clone https://github.com/pipebots/rpi4-monitor.git
+```
+
+Install pre-requisites:
+
+```bash
+sudo apt install ros-humble-diagnostics
+```
+
+Then build:
+
+```bash
 cd ~/ws
 colcon build
 ```
 
-and to launch:
+And finally launch:
 
 ```bash
+cd ~/ws
 . ./install.setup.bash
 ros2 launch rpi_monitor monitor.launch.py
 ```

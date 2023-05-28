@@ -47,7 +47,7 @@ static const std::string kCPUUsagePath("/proc/stat");
 static const float kCPUUsageError = 90.0;
 static const float kCPUUsageWarn = 80.0;
 static const int kCPUUsageNumCPUs = 4;
-static const uint16_t kJiffiesPerSecond = 100;
+static const unsigned kJiffiesPerSecond = 100;
 
 static const float kMemoryUsageError = 95.0;
 static const float kMemoryUsageWarn = 80.0;
@@ -149,19 +149,20 @@ RPiMonitorNode::UsageData RPiMonitorNode::ReadCPUUsageData()
   double usage_percent = 0;
   if (last_idle_jiffies_ > 0) {
     // Calculate jiffies used per second per CPU.
-    uint64_t idle_used_jiffies = idle_jiffies - last_idle_jiffies_;
+    uint32_t idle_per_cpu_jiffies =
+      static_cast<uint32_t>(idle_jiffies - last_idle_jiffies_) / kCPUCount;
+    uint32_t used_per_cpu_jiffies = kJiffiesPerSecond - idle_per_cpu_jiffies;
     printf(
-      "%s: jiffies: this %lu, last %lu, diff %lu\n", __func__,
-      idle_jiffies, last_idle_jiffies_, idle_used_jiffies);
+      "%s: jiffies: this %lu, last %lu, idle per cpu %u, used per cpu %u\n", __func__,
+      idle_jiffies, last_idle_jiffies_, idle_per_cpu_jiffies, used_per_cpu_jiffies);
     rclcpp::Duration interval_duration = call_time - last_idle_called_;
     double interval_s = interval_duration.seconds();
-    double idle_time_s = (idle_used_jiffies / kJiffiesPerSecond) / interval_s;
-    double idle_time_per_cpu_s = idle_time_s / kCPUCount;
-    printf(
-      "%s: interval: %f, idle time %f, per cpu %f\n", __func__,
-      interval_s, idle_time_s, idle_time_per_cpu_s);
+    double used_time_s = used_per_cpu_jiffies * interval_s;
     // Convert to percentage in use.
-    usage_percent = ((1.0 - idle_time_per_cpu_s) / 1.0 ) * 100;
+    usage_percent = (used_time_s / 100.0) * 100.0;
+    printf(
+      "%s: interval: %f, used time %f, usage %.2f%%\n", __func__,
+      interval_s, used_time_s, usage_percent);
   }
   // Update last values.
   last_idle_jiffies_ = idle_jiffies;

@@ -7,7 +7,7 @@ These are ROS2 commands that can be used to verify the correct operation of the 
 Open a terminal on the Raspberry Pi and launch the monitor program.
 
 ```bash
-cd ~/pipebot_4wd_ws
+cd ~/ws
 . ./install/setup.bash
 ros2 launch rpi_monitor monitor.launch.py
 ```
@@ -15,7 +15,7 @@ ros2 launch rpi_monitor monitor.launch.py
 In a second terminal window, verify that the `/diagnostics` topic is present using:
 
 ```bash
-$ cd ~/pipebot_4wd_ws
+$ cd ~/ws
 $ . ./install/setup.bash
 $ ros2 topic list
 /diagnostics
